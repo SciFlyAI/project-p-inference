@@ -1,1 +1,1 @@
-from inference import InferenceONNX
+from .inference import InferenceONNX
