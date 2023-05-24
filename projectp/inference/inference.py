@@ -39,8 +39,13 @@ class InferenceONNX:
         self.session = InferenceSession(osp.join(prefix, path))
         self.input = self.session.get_inputs()[0].shape
 
-    def process_video(self, filename_source, confidence=0.45, codec='mp4v',
-                      max_frames=0, progress=True, debug=False):
+    def process_video(self, filename_source, prefix_target=None,
+                      suffix_target=None, confidence=0.45, codec='mp4v',
+                      max_frames=0, progress=True, debug=False, feedback=None):
+        prefix_target = prefix_target or osp.dirname(filename_source)
+        assert osp.isdir(prefix_target), \
+            f"prefix '{prefix_target}' is not a valid directory!"
+        suffix_target = suffix_target or 'output'
         video_source = cv.VideoCapture(filename_source)
         boxes_video = np.zeros((0, 7), dtype=np.float32)  # []
         tiles_video = []
@@ -49,8 +54,8 @@ class InferenceONNX:
             'total': None
         }
         try:
+            count = 0
             if video_source.isOpened():
-                count = 0
                 count_total = int(video_source.get(cv.CAP_PROP_FRAME_COUNT))
                 max_frames = max_frames or count_total
                 index_frame = -1
@@ -58,7 +63,9 @@ class InferenceONNX:
                 w, h = (video_source.get(cv.CAP_PROP_FRAME_WIDTH),
                         video_source.get(cv.CAP_PROP_FRAME_HEIGHT))
                 w, h = tuple(map(int, (w, h)))
-                filename_target = f"{osp.splitext(filename_source)[0]}.output.mp4"
+                filename_target = osp.join(prefix_target, osp.basename(
+                    f"{osp.splitext(filename_source)[0]}.{suffix_target}.mp4"
+                ))
                 video_target = cv.VideoWriter(filename_target,
                                               cv.VideoWriter_fourcc(*codec),
                                               fps, (w, h), True)
@@ -197,7 +204,8 @@ class InferenceONNX:
                         else:
                             boxes_nms = boxes_frame
                         boxes_frame = relative_to_absolute(boxes_nms, frame)
-                        boxes_frame = np.insert(boxes_frame, 0, index_frame, -1)  # prepend frame# to detection vector
+                        # Prepend frame# to detection vector
+                        boxes_frame = np.insert(boxes_frame, 0, index_frame, -1)
                         boxes_video = np.vstack([boxes_video, boxes_frame])
                         tiles_video.append(tiles)
                         times_video['frames'].append(perf_counter() - time_start)
@@ -214,6 +222,12 @@ class InferenceONNX:
                 video_target.release()
             else:
                 log.error(f"Can't open source file '{filename_source}'...")
+        except KeyboardInterrupt:
+            log.info(f"Interrupt at frame#{count:05d}...")
+            # Inform calling routine with feedback (if any) that
+            # KeyboardInterrupt has been occurred in order to finish gracefully
+            if isinstance(feedback, dict):
+                feedback['continue'] = False
         finally:
             try:
                 video_target.release()
@@ -228,12 +242,16 @@ class InferenceONNX:
         # break
         return boxes_video, tiles_video, times_video
 
-    def process_videos(self, filenames, confidence=0.45, codec='mp4v',
+    def process_videos(self, filenames, prefix_target=None, suffix_target=None,
+                       confidence=0.45, codec='mp4v',
                        max_files=0, max_frames=0,
                        progress=True, debug=False):
         boxes_total = {}
         tiles_total = {}
         times_total = {}
+        feedback = {
+            'continue': True
+        }
         max_files = (max_files
                      if isinstance(max_files, int) and max_files
                      else None)
@@ -242,13 +260,18 @@ class InferenceONNX:
                                     leave=True, disable=True):
             boxes_video, tiles_video, times_video = self.process_video(
                 filename_source=filename_source,
+                prefix_target=prefix_target,
+                suffix_target=suffix_target,
                 confidence=confidence,
                 codec=codec,
                 max_frames=max_frames,
                 progress=progress,
-                debug=debug
+                debug=debug,
+                feedback=feedback
             )
             boxes_total[filename_source] = boxes_video
             tiles_total[filename_source] = tiles_video
             times_total[filename_source] = times_video
+            if not feedback['continue']:
+                break
         return boxes_total, tiles_total, times_total
