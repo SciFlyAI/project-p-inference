@@ -70,7 +70,7 @@ class InferenceONNX:
                                               cv.VideoWriter_fourcc(*codec),
                                               fps, (w, h), True)
                 # boxes_video = np.zeros((0, 7), dtype=np.float32)
-                with tqdm(total=count_total, position=0, leave=True,
+                with tqdm(total=max_frames, position=0, leave=True,
                           disable=not progress or debug) as progress_file:
                     while True:
                         time_start = perf_counter()
@@ -256,8 +256,12 @@ class InferenceONNX:
                      if isinstance(max_files, int) and max_files
                      else None)
 
-        for filename_source in tqdm(filenames[:max_files], position=0,
+        filenames = filenames[:max_files]
+        count = 0
+        # TODO: multiple progress bars
+        for filename_source in tqdm(filenames, position=0,
                                     leave=True, disable=True):
+            log.info(f"Processing file {count + 1}/{len(filenames)}...")
             boxes_video, tiles_video, times_video = self.process_video(
                 filename_source=filename_source,
                 prefix_target=prefix_target,
@@ -274,4 +278,5 @@ class InferenceONNX:
             times_total[filename_source] = times_video
             if not feedback['continue']:
                 break
+            count += 1
         return boxes_total, tiles_total, times_total
