@@ -39,6 +39,88 @@ class InferenceONNX:
         self.session = InferenceSession(osp.join(prefix, path))
         self.input = self.session.get_inputs()[0].shape
 
+    def _process_tiles(self, frame, results, confidence=0.45, time_start=None,
+                       debug=False):
+        time_start = time_start or perf_counter()
+        tiles = get_tiles(frame, self.input[-1:-3:-1])
+        boxes_frame = np.zeros((0, 6), dtype=np.float32)
+        for i in range(tiles.shape[1]):
+            for j in range(tiles.shape[0]):
+                tile = tiles[j, i]
+                image = cv.cvtColor(frame[tile.slice],
+                                    cv.COLOR_BGR2RGB)
+                # log.debug(f"Image shape = {image.shape},"
+                #           f" slice = {tile.slice}")
+
+                # ONNX inference
+                batch = np.moveaxis(
+                    image, -1, 0
+                )[None, ...] / np.float32(255)
+                # TODO: batch size > 1
+                boxes = self.session.run(
+                    None,
+                    {self.session.get_inputs()[0].name: batch}
+                )[0][0]
+                tile.bboxes = np.zeros((0, 6), dtype=np.float32)  # <- boxes
+                if debug:
+                    log.debug(
+                        f"Patch {(i, j)} "
+                        f"{(tile.x1, tile.y1, tile.x2, tile.y2)},"
+                        f" boxes = {boxes.shape}"
+                    )
+                boxes_norm = yolo_to_xyxy(boxes, frame, (1, 1),
+                                          tile.x1, tile.y1)
+                boxes_norm = absolute_to_relative(boxes_norm,
+                                                  frame)
+                # boxes_norm_ = boxes_norm
+
+                # NMS
+                boxes_nms = boxes_norm[boxes_norm[..., 4] > confidence]
+
+                if debug:
+                    log.debug(f"Boxes frame = {boxes_frame.shape},"
+                              f" boxes NMS = {boxes_nms.shape}")
+                boxes_wbf = weighted_boxes_fusion(
+                    (np.clip(boxes_nms[..., :4], 0, 1),
+                     np.clip(boxes_frame[..., :4], 0, 1)
+                     ),
+                    (boxes_nms[..., 4],
+                     boxes_frame[..., 4]
+                     ),
+                    (boxes_nms[..., 5].round(),
+                     boxes_frame[..., 5].round()
+                     ),
+                    iou_thr=0.175,  # 0.175
+                    skip_box_thr=confidence,
+                    conf_type='max'
+                )
+                boxes_wbf = np.column_stack(boxes_wbf)
+
+                boxes_frame = np.vstack((boxes_frame, boxes_wbf))
+
+        if len(boxes_frame):
+            boxes_nms = nms(
+                (boxes_frame[..., :4],
+                 ),
+                (boxes_frame[..., 4],
+                 ),
+                (boxes_frame[..., 5].round(),
+                 ), iou_thr=0.65  # 0.175
+            )
+            boxes_nms = np.column_stack(boxes_nms)
+        else:
+            boxes_nms = boxes_frame
+        boxes_frame = relative_to_absolute(boxes_nms, frame)
+        # Prepend frame# to detection vector
+        boxes_frame = np.insert(boxes_frame, 0, results['index_frame'], -1)
+        results['boxes'] = np.vstack([results['boxes'], boxes_frame])
+        results['tiles'].append(tiles)
+        results['times']['frames'].append(perf_counter() - time_start)
+
+        # Draw detections and save to video
+        frame = draw_detections(frame, boxes_frame[:, 1:])
+        return frame
+
     def process_video(self, filename_source, prefix_target=None,
                       suffix_target=None, confidence=0.45, codec='mp4v',
                       max_frames=0, progress=True, debug=False, feedback=None):
@@ -47,14 +129,23 @@ class InferenceONNX:
             f"prefix '{prefix_target}' is not a valid directory!"
         suffix_target = suffix_target or 'output'
         video_source = cv.VideoCapture(filename_source)
-        boxes_video = np.zeros((0, 7), dtype=np.float32)  # []
-        tiles_video = []
-        times_video = {
-            'frames': [],
-            'total': None
+        results = {
+            'index_frame': -1,
+            'boxes': np.zeros((0, 7), dtype=np.float32),
+            'tiles': [],
+            'times': {
+                'frames': [],
+                'total': None
+            }
         }
+        # boxes_video = np.zeros((0, 7), dtype=np.float32)  # []
+        # tiles_video = []
+        # times_video = {
+        #     'frames': [],
+        #     'total': None
+        # }
+        count = 0
         try:
-            count = 0
             if video_source.isOpened():
                 count_total = int(video_source.get(cv.CAP_PROP_FRAME_COUNT))
                 max_frames = max_frames or count_total
@@ -75,147 +166,20 @@ class InferenceONNX:
                     while True:
                         time_start = perf_counter()
                         ok, frame = video_source.read()
-                        index_frame += 1
-                        if not ok or index_frame >= max_frames:
+                        results['index_frame'] += 1
+                        if not ok or results['index_frame'] >= max_frames:
                             break
                         else:
                             frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
-                        tiles = get_tiles(frame, self.input[-1:-3:-1])
-                        boxes_frame = np.zeros((0, 6), dtype=np.float32)
-                        # boxes_debug = np.zeros((0, 6), dtype=np.float32)
-                        for i in range(tiles.shape[1]):
-                            for j in range(tiles.shape[0]):
-                                tile = tiles[j, i]
-                                image = cv.cvtColor(frame[tile.slice],
-                                                    cv.COLOR_BGR2RGB)
-                                # log.debug(f"Image shape = {image.shape},"
-                                #           f" slice = {tile.slice}")
-
-                                # ONNX inference
-                                batch = np.moveaxis(
-                                    image, -1, 0
-                                )[None, ...] / np.float32(255)
-                                # TODO: batch size > 1
-                                boxes = self.session.run(
-                                    None,
-                                    {self.session.get_inputs()[0].name: batch}
-                                )[0][0]
-                                tile.bboxes = np.zeros((0, 6), dtype=np.float32)  # <- boxes
-                                if debug:
-                                    log.debug(
-                                        f"Patch {(i, j)} "
-                                        f"{(tile.x1, tile.y1, tile.x2, tile.y2)},"
-                                        f" boxes = {boxes.shape}"
-                                    )
-                                # assert False  # debug break
-                                # TODO: preprocess edge boxes
-                                # boxes_norm = absolute_to_relative(
-                                #     yolo_to_xyxy(boxes, frame[tile.slice],
-                                #                  tile.x1, tile.y1),
-                                #     frame[tile.slice]
-                                # )
-                                boxes_norm = yolo_to_xyxy(boxes, frame, (1, 1),
-                                                          tile.x1, tile.y1)
-                                boxes_norm = absolute_to_relative(boxes_norm,
-                                                                  frame)
-                                boxes_norm_ = boxes_norm
-                                # boxes_debug = np.concatenate((boxes_debug, boxes_norm))
-                                # assert False
-
-                                # NMS
-                                # boxes_norm = boxes_norm[None, ...]
-                                boxes_nms = boxes_norm[boxes_norm[..., 4] > confidence]
-                                # if len(boxes_norm):
-                                #     boxes_nms = nms(
-                                #         (boxes_norm[..., :4],
-                                #          # np.clip(boxes_norm[..., :4], 0, 1),
-                                #          boxes_norm[..., :4],
-                                #         ),
-                                #         (boxes_norm[..., 4],
-                                #          boxes_norm[..., 4],
-                                #         ),
-                                #         (boxes_norm[..., 5].round(),
-                                #          boxes_norm[..., 5].round(),
-                                #         ), iou_thr=0.65  # 0.175
-                                #     )
-                                #     boxes_nms = np.column_stack(boxes_nms)
-                                # else:
-                                #     boxes_nms = boxes_norm
-
-                                # boxes_norm = normalize_boxes(boxes_nms, image,
-                                #                              denormalize=True)
-                                # boxes_norm[:, 0:4:2] += tile.x1
-                                # boxes_norm[:, 1:4:2] += tile.y1
-                                # boxes_norm = normalize_boxes(boxes_nms, image,
-                                #                              denormalize=True)
-
-                                if debug:
-                                    log.debug(f"Boxes frame = {boxes_frame.shape},"
-                                              f" boxes NMS = {boxes_nms.shape}")
-                                # if isinstance(boxes_frame, np.ndarray):
-                                #     # boxes_norm = (boxes_frame, boxes_nms)
-                                #     boxes_norm = (boxes_frame, boxes_norm_)
-                                #     log.debug(f"Boxes frame = {boxes_frame.shape}")
-                                # else:
-                                #     # boxes_norm = (boxes_nms, boxes_nms)
-                                #     boxes_norm = (boxes_norm_, boxes_norm_)
-                                boxes_wbf = weighted_boxes_fusion(
-                                    (np.clip(boxes_nms[..., :4], 0, 1),
-                                     # np.clip(boxes_nms[..., :4], 0, 1),
-                                     np.clip(boxes_frame[..., :4], 0, 1)
-                                     ),
-                                    (boxes_nms[..., 4],
-                                     # boxes_nms[..., 4],
-                                     boxes_frame[..., 4]
-                                     ),
-                                    (boxes_nms[..., 5].round(),
-                                     # boxes_nms[..., 5].round(),
-                                     boxes_frame[..., 5].round()
-                                     ),
-                                    iou_thr=0.175,  # 0.175
-                                    skip_box_thr=confidence,
-                                    conf_type='max'
-                                )
-                                boxes_wbf = np.column_stack(boxes_wbf)
-
-                                boxes_frame = np.vstack((boxes_frame, boxes_wbf))
-
-                                # De-normalizing
-                                # boxes_norm = normalize_boxes(boxes_wbf, image,
-                                #                              denormalize=True)
-                                # boxes_wbf[:, 0:4:2] *= image.shape[1]
-                                # boxes_wbf[:, 1:4:2] *= image.shape[0]
-                                # boxes_nms.shape
-                                # break
-                        if len(boxes_frame):
-                            boxes_nms = nms(
-                                (boxes_frame[..., :4],
-                                 # np.clip(boxes_norm[..., :4], 0, 1),
-                                 # boxes_norm[..., :4],
-                                 ),
-                                (boxes_frame[..., 4],
-                                 # boxes_norm[..., 4],
-                                 ),
-                                (boxes_frame[..., 5].round(),
-                                 # boxes_norm[..., 5].round(),
-                                 ), iou_thr=0.65  # 0.175
-                            )
-                            boxes_nms = np.column_stack(boxes_nms)
-                        else:
-                            boxes_nms = boxes_frame
-                        boxes_frame = relative_to_absolute(boxes_nms, frame)
-                        # Prepend frame# to detection vector
-                        boxes_frame = np.insert(boxes_frame, 0, index_frame, -1)
-                        boxes_video = np.vstack([boxes_video, boxes_frame])
-                        tiles_video.append(tiles)
-                        times_video['frames'].append(perf_counter() - time_start)
-
-                        # Draw detections and save to video
-                        frame = draw_detections(frame, boxes_frame[:, 1:])
+                        frame = self._process_tiles(frame,
+                                                    results,
+                                                    confidence=confidence,
+                                                    time_start=time_start,
+                                                    debug=debug)
                         video_target.write(cv.cvtColor(frame, cv.COLOR_RGB2BGR))
                         if debug:
                             log.debug(f"Frame {count:05d} done in"
-                                      f" {times_video['frames'][-1]:.3f} sec")
+                                      f" {results['times']['frames'][-1]:.3f} sec")
                         count += 1
                         progress_file.update(1)
                         # break
@@ -234,13 +198,13 @@ class InferenceONNX:
             except (NameError, AttributeError):
                 pass
             video_source.release()
-        times_video['frames'] = np.array(times_video['frames'])
-        times_video['total'] = times_video['frames'].sum()
+        results['times']['frames'] = np.array(results['times']['frames'])
+        results['times']['total'] = results['times']['frames'].sum()
         if debug:
             log.debug(f"File '{filename_source}' done in"
-                      f" {times_video['total'] / 60:.3f} min")
+                      f" {results['times']['total'] / 60:.3f} min")
         # break
-        return boxes_video, tiles_video, times_video
+        return results['boxes'], results['tiles'], results['times']
 
     def process_videos(self, filenames, prefix_target=None, suffix_target=None,
                        confidence=0.45, codec='mp4v',
