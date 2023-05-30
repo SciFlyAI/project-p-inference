@@ -1,6 +1,7 @@
 from os import makedirs, path as osp
 
 from projectp.inference import InferenceONNX
+from projectp.processing import get_percentile
 from projectp.utils import LogStub
 
 
@@ -45,9 +46,17 @@ if __name__ == '__main__':
                     f" conflicting files will be overwritten!")
     else:
         makedirs(prefix_target)
-    boxes_total, tiles_total, times_total = inference_onnx.process_videos(
+    boxes_total, tiles_total, times_total = inference_onnx.process_files(
         sources, prefix_target=prefix_target,
         max_files=args.max_files, max_frames=args.max_frames,
         progress=not args.silent, debug=args.debug
     )
+    time_wall = 0.0
+    for k, v in times_total.items():
+        # log.debug(f"Boxes shape = {boxes_total[k].shape}")
+        percentile = round(get_percentile(boxes_total[k], 95))
+        log.info(f"File '{k}' done in {v['total'] / 60:.3f} min,"
+                 f" detected {percentile} targets (95-percentile)")
+        time_wall += v['total']
+    log.info(f"Wall time = {time_wall / 60:.3f} min")
 
