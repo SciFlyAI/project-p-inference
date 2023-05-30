@@ -4,8 +4,9 @@ from time import perf_counter
 import cv2 as cv
 import numpy as np
 
-from onnxruntime import InferenceSession
 from ensemble_boxes import nms, weighted_boxes_fusion
+from filetype import guess
+from onnxruntime import InferenceSession
 
 from ..processing import (
     get_tiles, yolo_to_xyxy, draw_detections,
@@ -39,9 +40,8 @@ class InferenceONNX:
         self.session = InferenceSession(osp.join(prefix, path))
         self.input = self.session.get_inputs()[0].shape
 
-    def _process_tiles(self, frame, results, confidence=0.45, time_start=None,
-                       debug=False):
-        time_start = time_start or perf_counter()
+    def _process_tiles(self, frame, results, confidence=0.45, debug=False):
+        time_start = results['time_start'] or perf_counter()
         tiles = get_tiles(frame, self.input[-1:-3:-1])
         boxes_frame = np.zeros((0, 6), dtype=np.float32)
         for i in range(tiles.shape[1]):
@@ -72,7 +72,6 @@ class InferenceONNX:
                                           tile.x1, tile.y1)
                 boxes_norm = absolute_to_relative(boxes_norm,
                                                   frame)
-                # boxes_norm_ = boxes_norm
 
                 # NMS
                 boxes_nms = boxes_norm[boxes_norm[..., 4] > confidence]
@@ -121,6 +120,57 @@ class InferenceONNX:
         frame = draw_detections(frame, boxes_frame[:, 1:])
         return frame
 
+    def process_image(self, filename_source, prefix_target=None,
+                      suffix_target=None, confidence=0.45, debug=False,
+                      feedback=None):
+        prefix_target = prefix_target or osp.dirname(filename_source)
+        assert osp.isdir(prefix_target), \
+            f"prefix '{prefix_target}' is not a valid directory!"
+        suffix_target = suffix_target or 'output'
+        image_source = cv.imread(filename_source, cv.IMREAD_COLOR)
+        results = {
+            'index_frame': 0,
+            'time_start': None,
+            'boxes': np.zeros((0, 7), dtype=np.float32),
+            'tiles': [],
+            'times': {
+                'frames': [],
+                'total': None
+            }
+        }
+        try:
+            if image_source is not None:
+                # w, h = tuple(map(int, image_source.shape[1::-1]))
+                filename_target = osp.join(prefix_target, osp.basename(
+                    f"{osp.splitext(filename_source)[0]}.{suffix_target}.jpg"
+                ))
+                results['time_start'] = perf_counter()
+                frame = self._process_tiles(cv.cvtColor(image_source,
+                                                        cv.COLOR_BGR2RGB),
+                                            results,
+                                            confidence=confidence,
+                                            debug=debug)
+                cv.imwrite(filename_target, cv.cvtColor(frame, cv.COLOR_RGB2BGR))
+                if debug:
+                    log.debug(f"Image '{filename_target}' done in"
+                              f" {results['times']['frames'][-1]:.3f} sec")
+            else:
+                log.error(f"Can't open source file '{filename_source}'...")
+        except KeyboardInterrupt:
+            log.info(f"Interrupt at image '{filename_target}'...")
+            # Inform calling routine with feedback (if any) that
+            # KeyboardInterrupt has been occurred in order to finish gracefully
+            if isinstance(feedback, dict):
+                feedback['continue'] = False
+        finally:
+            ...
+        results['times']['frames'] = np.array(results['times']['frames'])
+        results['times']['total'] = results['times']['frames'].sum()
+        if debug:
+            log.debug(f"File '{filename_source}' done in"
+                      f" {results['times']['total'] / 60:.3f} min")
+        return results['boxes'], results['tiles'], results['times']
+
     def process_video(self, filename_source, prefix_target=None,
                       suffix_target=None, confidence=0.45, codec='mp4v',
                       max_frames=0, progress=True, debug=False, feedback=None):
@@ -131,6 +181,7 @@ class InferenceONNX:
         video_source = cv.VideoCapture(filename_source)
         results = {
             'index_frame': -1,
+            'time_start': None,
             'boxes': np.zeros((0, 7), dtype=np.float32),
             'tiles': [],
             'times': {
@@ -138,33 +189,25 @@ class InferenceONNX:
                 'total': None
             }
         }
-        # boxes_video = np.zeros((0, 7), dtype=np.float32)  # []
-        # tiles_video = []
-        # times_video = {
-        #     'frames': [],
-        #     'total': None
-        # }
         count = 0
         try:
             if video_source.isOpened():
                 count_total = int(video_source.get(cv.CAP_PROP_FRAME_COUNT))
                 max_frames = max_frames or count_total
-                index_frame = -1
                 fps = video_source.get(cv.CAP_PROP_FPS)
                 w, h = (video_source.get(cv.CAP_PROP_FRAME_WIDTH),
                         video_source.get(cv.CAP_PROP_FRAME_HEIGHT))
                 w, h = tuple(map(int, (w, h)))
                 filename_target = osp.join(prefix_target, osp.basename(
                     f"{osp.splitext(filename_source)[0]}.{suffix_target}.mp4"
-                ))
+                ))  # TODO: file extension from codec mapping
                 video_target = cv.VideoWriter(filename_target,
                                               cv.VideoWriter_fourcc(*codec),
                                               fps, (w, h), True)
-                # boxes_video = np.zeros((0, 7), dtype=np.float32)
                 with tqdm(total=max_frames, position=0, leave=True,
                           disable=not progress or debug) as progress_file:
                     while True:
-                        time_start = perf_counter()
+                        results['time_start'] = perf_counter()
                         ok, frame = video_source.read()
                         results['index_frame'] += 1
                         if not ok or results['index_frame'] >= max_frames:
@@ -174,7 +217,7 @@ class InferenceONNX:
                         frame = self._process_tiles(frame,
                                                     results,
                                                     confidence=confidence,
-                                                    time_start=time_start,
+                                                    # time_start=time_start,
                                                     debug=debug)
                         video_target.write(cv.cvtColor(frame, cv.COLOR_RGB2BGR))
                         if debug:
@@ -203,8 +246,40 @@ class InferenceONNX:
         if debug:
             log.debug(f"File '{filename_source}' done in"
                       f" {results['times']['total'] / 60:.3f} min")
-        # break
         return results['boxes'], results['tiles'], results['times']
+
+    def process_images(self, filenames, prefix_target=None, suffix_target=None,
+                       confidence=0.45, max_files=0,
+                       progress=True, debug=False):
+        boxes_total = {}
+        tiles_total = {}
+        times_total = {}
+        feedback = {
+            'continue': True
+        }
+        max_files = (max_files
+                     if isinstance(max_files, int) and max_files
+                     else None)
+
+        filenames = filenames[:max_files]
+        # TODO: multiple progress bars
+        log.info(f"Processing {len(filenames)} images...")
+        for filename_source in tqdm(filenames, position=0,
+                                    leave=True, disable=not progress or debug):
+            boxes_image, tiles_image, times_image = self.process_image(
+                filename_source=filename_source,
+                prefix_target=prefix_target,
+                suffix_target=suffix_target,
+                confidence=confidence,
+                debug=debug,
+                feedback=feedback
+            )
+            boxes_total[filename_source] = boxes_image
+            tiles_total[filename_source] = tiles_image
+            times_total[filename_source] = times_image
+            if not feedback['continue']:
+                break
+        return boxes_total, tiles_total, times_total
 
     def process_videos(self, filenames, prefix_target=None, suffix_target=None,
                        confidence=0.45, codec='mp4v',
@@ -225,7 +300,7 @@ class InferenceONNX:
         # TODO: multiple progress bars
         for filename_source in tqdm(filenames, position=0,
                                     leave=True, disable=True):
-            log.info(f"Processing file {count + 1}/{len(filenames)}...")
+            log.info(f"Processing video {count + 1}/{len(filenames)}...")
             boxes_video, tiles_video, times_video = self.process_video(
                 filename_source=filename_source,
                 prefix_target=prefix_target,
@@ -243,4 +318,70 @@ class InferenceONNX:
             if not feedback['continue']:
                 break
             count += 1
+        return boxes_total, tiles_total, times_total
+
+    def process_files(self, filenames, prefix_target=None, suffix_target=None,
+                      confidence=0.45, codec='mp4v',
+                      max_files=0, max_frames=0,
+                      progress=True, debug=False):
+        filenames_images = []
+        filenames_videos = []
+        filenames_unknown = []
+
+        boxes_total = {}
+        tiles_total = {}
+        times_total = {}
+
+        log.info(f"Searching for files of known types...")
+        for filename in tqdm(filenames, position=0, leave=True,
+                             disable=not progress or debug):
+            kind = guess(filename)
+
+            if kind is None:
+                if debug:
+                    log.warning(f"Skipping file '{filename}'"
+                                f" of unknown type...")
+                filenames_unknown.append(filename)
+            else:
+                media, filetype = kind.mime.split('/')[:2]
+
+                if media == 'image':
+                    filenames_images.append(filename)
+                elif media == 'video':
+                    filenames_videos.append(filename)
+                else:
+                    ...
+
+        if filenames_unknown:
+            log.warning(f"Skipping {len(filenames_unknown)}"
+                        f" files of unknown type...")
+
+        boxes_images, tiles_images, times_images = self.process_images(
+            filenames_images,
+            prefix_target=prefix_target,
+            suffix_target=suffix_target,
+            confidence=confidence,
+            max_files=max_files,
+            progress=progress,
+            debug=debug
+        )
+        boxes_total.update(boxes_images)
+        tiles_total.update(tiles_images)
+        times_total.update(times_images)
+
+        boxes_videos, tiles_videos, times_videos = self.process_videos(
+            filenames_videos,
+            prefix_target=prefix_target,
+            suffix_target=suffix_target,
+            confidence=confidence,
+            codec=codec,
+            max_files=max_files,
+            max_frames=max_frames,
+            progress=progress,
+            debug=debug
+        )
+        boxes_total.update(boxes_videos)
+        tiles_total.update(tiles_videos)
+        times_total.update(times_videos)
+
         return boxes_total, tiles_total, times_total
