@@ -200,6 +200,8 @@ def draw_detections(frame, detections, font_face=cv.FONT_HERSHEY_COMPLEX_SMALL,
 
 def get_percentile(detections: np.ndarray, percentile: int = 99):
     detections = detections[:, 0]
+    if not len(detections):
+        return 0.0
     detections_count, bins = np.histogram(detections,
                                           bins=detections.max().astype(int) + 1)
     return np.percentile(detections_count, percentile)
