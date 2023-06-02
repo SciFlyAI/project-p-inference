@@ -51,12 +51,10 @@ def get_tiles(image, size_crop, log=log, verbose=False):
     tiles = np.array(
         [None] * num_patches_x * num_patches_y
     ).reshape((num_patches_y, num_patches_x))
-    # log.debug(f"{path} size = {(width, height)}, num patches = {(num_patches_x, num_patches_y)}")
     if verbose:
         log.info(f"Size = {(width, height)},"
                  f" num patches = {(num_patches_x, num_patches_y)},"
                  f" tiles.shape = {tiles.shape}")
-    # count_bboxes = 0
     offset_x = 0
     for i in range(num_patches_x):
         offset_y = 0
@@ -77,41 +75,14 @@ def get_tiles(image, size_crop, log=log, verbose=False):
             clip_max_y = (offset_y + size_crop[1]) / height
             # Clip maximum values (sizes intact)
             clip_max = np.array([clip_max_x, clip_max_y, 1, 1])
-            # bbcoords_clip = np.clip(bbcoords, clip_min, clip_max)
-            # array_bboxes = bbcoords_clip[((bbcoords_clip[:, :2] != clip_min[:2]) &
-            #                               (bbcoords_clip[:, :2] != clip_max[:2])).all(axis=1)]
-            # array_bboxes = bbcoords[(bbcoords[:, 0] > clip_min_x) &
-            #                         (bbcoords[:, 1] > clip_min_y) &
-            #                         (bbcoords[:, 0] < clip_max_x) &
-            #                         (bbcoords[:, 1] < clip_max_y)]
-            # Shift coordinates
-            # array_bboxes[:, 0:1] -= clip_min_x
-            # array_bboxes[:, 1:2] -= clip_min_y
-            # Scale coordinates
-            # array_bboxes /= np.array([ratio_x, ratio_y, ratio_x, ratio_y])
-            # num_bboxes = len(array_bboxes)
-            # count_bboxes += num_bboxes
-            # log.debug(f"Objects in the patch = {num_bboxes}")
-            # path_output = osp.join(target, f"{filename[0]}.{offset_x:05d}.{offset_y:05d}{filename[1]}")
-            # log.debug(path_output)
-            # cv.imwrite(path_output, image[offset_y:offset_y + size_crop[1] + 1,
-            #                               offset_x:offset_x + size_crop[0] + 1])
-            # with open(f"{osp.splitext(path_output)[0]}.txt", 'w') as file_annotation:
-            #     # FIXME: hardcoded 0 index (take from list of categories)
-            #     file_annotation.writelines([f"0 {b[0]} {b[1]} {b[2]} {b[3]}\n" for b in array_bboxes])
             # Update y-offset (end of iteration)
             shift_y = (((num_patches_y - j) - (height - offset_y) / size_crop[1]) /
                        (num_patches_y - j - 1 + 1e-15))
             offset_y += round(size_crop[1] - size_crop[1] * shift_y)
-            # log.debug(shift_y, height - offset_y)
-            # pass
         # Update x-offset (end of iteration)
         shift_x = (((num_patches_x - i) - (width - offset_x) / size_crop[0]) /
                    (num_patches_x - i - 1 + 1e-15))
         offset_x += round(size_crop[0] - size_crop[0] * shift_x)
-        # log.debug(shift_x, width - offset_x)
-    # log.info(f"Total bboxes (with overlap) = {count_bboxes} ({path})!")
-    # break
     return tiles
 
 
@@ -127,15 +98,10 @@ def yolo_to_xyxy(boxes, image, size, offset_x=0.0, offset_y=0.0):
     boxes_norm[:, 0] -= boxes_norm[:, 2] / 2  # x1
     boxes_norm[:, 1] -= boxes_norm[:, 3] / 2  # y1
 
-    # if np.any([offset_x, offset_y]):
-    #     boxes_norm[:, 0] += offset_x / image.shape[1]  # x1 + offset
-    #     boxes_norm[:, 1] += offset_y / image.shape[0]  # y1 + offset
-
     boxes_norm[:, 2] += boxes_norm[:, 0]  # x2
     boxes_norm[:, 3] += boxes_norm[:, 1]  # y2
 
     if np.any([offset_x, offset_y]):
-        # log.debug('Yololo!')
         boxes_norm[:, 0:4:2] *= size_x / image.shape[1]  # scale to global size (relative)
         boxes_norm[:, 0:4:2] += offset_x / image.shape[1]  # x1 + offset (relative)
         boxes_norm[:, 0:4:2] *= image.shape[1]  # scale to absolute
@@ -171,15 +137,11 @@ def draw_detections(frame, detections, font_face=cv.FONT_HERSHEY_COMPLEX_SMALL,
                     text_origin_x=None, text_origin_y=None):
     scma = get_colors(detections)  # TODO: replace with numpy array
 
-    # frame = frame.copy()
-    # detections = detections.copy()
     coords_all = (
             detections[..., 0:2] +
             (detections[..., 2:4] - detections[..., 0:2]) / 2
     )
-    # for i, detection in enumerate(detections):  # boxes_total[0]:
     for i, coords in enumerate(coords_all):
-        # coords = detection[0:2] + (detection[2:4] - detection[0:2]) / 2
         color = (
                 np.array(scma.to_rgba(i)[:3]) * 255
         ).round().astype('uint8').tolist()
