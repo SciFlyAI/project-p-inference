@@ -29,7 +29,7 @@ log = LogStub()
 
 
 class InferenceONNX:
-    def __init__(self, path: str, prefix: str = None):
+    def __init__(self, path: str, prefix: str = None, log=log):
         """
         path: path to the model to predict from (a single model)
         prefix: path prefix for the model(s)
@@ -39,10 +39,11 @@ class InferenceONNX:
         assert osp.isdir(prefix), f"prefix must be a valid directory or None!"
         self.session = InferenceSession(osp.join(prefix, path))
         self.input = self.session.get_inputs()[0].shape
+        self.log = log
 
     def _process_tiles(self, frame, results, confidence=0.45, debug=False):
         time_start = results['time_start'] or perf_counter()
-        tiles = get_tiles(frame, self.input[-1:-3:-1])
+        tiles = get_tiles(frame, size_crop=self.input[-1:-3:-1], log=self.log)
         boxes_frame = np.zeros((0, 6), dtype=np.float32)
         for i in range(tiles.shape[1]):
             for j in range(tiles.shape[0]):
@@ -140,7 +141,6 @@ class InferenceONNX:
         }
         try:
             if image_source is not None:
-                # w, h = tuple(map(int, image_source.shape[1::-1]))
                 filename_target = osp.join(prefix_target, osp.basename(
                     f"{osp.splitext(filename_source)[0]}.{suffix_target}.jpg"
                 ))
