@@ -43,8 +43,18 @@ class InferenceONNX:
 
     def _process_tiles(self, frame, results, confidence=0.45, debug=False):
         time_start = results['time_start'] or perf_counter()
-        tiles = get_tiles(frame, size_crop=self.input[-1:-3:-1], log=self.log)
         boxes_frame = np.zeros((0, 6), dtype=np.float32)
+        try:
+            tiles = get_tiles(frame, size_crop=self.input[-1:-3:-1],
+                              log=self.log)
+        except AssertionError as ex:
+            log.error(ex)
+            tiles = np.array([])
+            boxes_frame = np.insert(boxes_frame, 0, results['index_frame'], -1)
+            results['boxes'] = np.vstack([results['boxes'], boxes_frame])
+            results['tiles'].append(tiles)
+            results['times']['frames'].append(perf_counter() - time_start)
+            return None
         for i in range(tiles.shape[1]):
             for j in range(tiles.shape[0]):
                 tile = tiles[j, i]
