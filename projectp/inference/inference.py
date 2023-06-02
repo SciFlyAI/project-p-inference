@@ -34,9 +34,9 @@ class InferenceONNX:
         path: path to the model to predict from (a single model)
         prefix: path prefix for the model(s)
         """
-        assert isinstance(path, str), f"path must be a single path!"
+        assert isinstance(path, str), f"Path must be a single path!"
         prefix = prefix or '.'
-        assert osp.isdir(prefix), f"prefix must be a valid directory or None!"
+        assert osp.isdir(prefix), f"Prefix must be a valid directory or None!"
         self.session = InferenceSession(osp.join(prefix, path))
         self.input = self.session.get_inputs()[0].shape
         self.log = log
@@ -136,7 +136,7 @@ class InferenceONNX:
                       feedback=None):
         prefix_target = prefix_target or osp.dirname(filename_source)
         assert osp.isdir(prefix_target), \
-            f"prefix '{prefix_target}' is not a valid directory!"
+            f"Prefix '{prefix_target}' is not a valid directory!"
         suffix_target = suffix_target or 'output'
         image_source = cv.imread(filename_source, cv.IMREAD_COLOR)
         results = {
@@ -160,7 +160,7 @@ class InferenceONNX:
                                             results,
                                             confidence=confidence,
                                             debug=debug)
-                assert frame is not None, f"failed to process {filename_source}!"
+                assert frame is not None, f"Failed to process {filename_source}!"
                 cv.imwrite(filename_target, cv.cvtColor(frame, cv.COLOR_RGB2BGR))
                 if debug:
                     log.debug(f"Image '{filename_target}' done in"
@@ -189,7 +189,7 @@ class InferenceONNX:
                       max_frames=0, progress=True, debug=False, feedback=None):
         prefix_target = prefix_target or osp.dirname(filename_source)
         assert osp.isdir(prefix_target), \
-            f"prefix '{prefix_target}' is not a valid directory!"
+            f"Prefix '{prefix_target}' is not a valid directory!"
         suffix_target = suffix_target or 'output'
         video_source = cv.VideoCapture(filename_source)
         results = {
@@ -235,7 +235,7 @@ class InferenceONNX:
                                                     debug=debug)
                         count += 1
                         progress_file.update(1)
-                        # assert frame is not None, f"failed to process frame#{count}!"
+                        # assert frame is not None, f"Failed to process frame#{count}!"
                         if frame is None:
                             results['frames_failed'] += 1
                             continue

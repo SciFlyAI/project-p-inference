@@ -32,7 +32,7 @@ def get_tiles(image, size_crop, log=log, verbose=False):
         isinstance(size_crop, (int, float)) or
         isinstance(size_crop, (dict, list, set, tuple)) and
         len(size_crop) == 2
-    ), (f"size_crop must be a single value or a collection of two values,"
+    ), (f"Size_crop must be a single value or a collection of two values,"
         f" got {type(size_crop)} = {size_crop}!")
     if isinstance(size_crop, (dict, list, set, tuple)):
         size_crop = tuple(size_crop)[:2]
@@ -40,7 +40,7 @@ def get_tiles(image, size_crop, log=log, verbose=False):
         size_crop = (size_crop, size_crop)
 
     assert image.shape[0] < height or image.shape[1] < width, (
-        f"one or more image dimensions less than crop size,"
+        f"One or more image dimensions less than crop size,"
         f" got image {(width, height)} vs crop {size_crop})!"
     )
 
