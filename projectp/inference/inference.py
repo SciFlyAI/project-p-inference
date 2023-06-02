@@ -160,6 +160,7 @@ class InferenceONNX:
                                             results,
                                             confidence=confidence,
                                             debug=debug)
+                assert frame is not None, f"failed to process {filename_source}!"
                 cv.imwrite(filename_target, cv.cvtColor(frame, cv.COLOR_RGB2BGR))
                 if debug:
                     log.debug(f"Image '{filename_target}' done in"
@@ -172,6 +173,8 @@ class InferenceONNX:
             # KeyboardInterrupt has been occurred in order to finish gracefully
             if isinstance(feedback, dict):
                 feedback['continue'] = False
+        except AssertionError as ex:
+            log.error(ex)
         finally:
             ...
         results['times']['frames'] = np.array(results['times']['frames'])
@@ -197,7 +200,8 @@ class InferenceONNX:
             'times': {
                 'frames': [],
                 'total': None
-            }
+            },
+            'frames_failed': 0
         }
         count = 0
         try:
@@ -229,13 +233,16 @@ class InferenceONNX:
                                                     confidence=confidence,
                                                     # time_start=time_start,
                                                     debug=debug)
+                        count += 1
+                        progress_file.update(1)
+                        # assert frame is not None, f"failed to process frame#{count}!"
+                        if frame is None:
+                            results['frames_failed'] += 1
+                            continue
                         video_target.write(cv.cvtColor(frame, cv.COLOR_RGB2BGR))
                         if debug:
                             log.debug(f"Frame {count:05d} done in"
                                       f" {results['times']['frames'][-1]:.3f} sec")
-                        count += 1
-                        progress_file.update(1)
-                        # break
                 video_target.release()
             else:
                 log.error(f"Can't open source file '{filename_source}'...")
@@ -256,6 +263,7 @@ class InferenceONNX:
         if debug:
             log.debug(f"File '{filename_source}' done in"
                       f" {results['times']['total'] / 60:.3f} min")
+            log.debug(f"Frames failed to process = {results['frames_failed']}")
         return results['boxes'], results['tiles'], results['times']
 
     def process_images(self, filenames, prefix_target=None, suffix_target=None,
