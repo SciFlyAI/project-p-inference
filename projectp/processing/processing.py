@@ -39,7 +39,7 @@ def get_tiles(image, size_crop, log=log, verbose=False):
     else:
         size_crop = (size_crop, size_crop)
 
-    assert image.shape[0] < height or image.shape[1] < width, (
+    assert width >= size_crop[0] and height >= size_crop[1], (
         f"One or more image dimensions less than crop size,"
         f" got image {(width, height)} vs crop {size_crop})!"
     )
