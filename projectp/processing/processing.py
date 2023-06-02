@@ -25,16 +25,9 @@ class Tile:
         self.bboxes = bboxes
 
 
-def get_tiles(image, size_crop, verbose=False):
+def get_tiles(image, size_crop, log=log, verbose=False):
     width, height = image.shape[1::-1]
 
-    assert tuple(image.shape[:2]) == (height, width)
-
-    # bbcoords = np.array(bboxes['bbox'].tolist())
-    # Coordinates: center point + sizes (all realtive to image dimensions)
-    # bbcoords[:, 0:2] += bbcoords[:, 2:4] / 2
-    # bbcoords[:, 0::2] /= width
-    # bbcoords[:, 1::2] /= height
     assert (
         isinstance(size_crop, (int, float)) or
         isinstance(size_crop, (dict, list, set, tuple)) and
@@ -45,6 +38,11 @@ def get_tiles(image, size_crop, verbose=False):
         size_crop = tuple(size_crop)[:2]
     else:
         size_crop = (size_crop, size_crop)
+
+    assert image.shape[0] < height or image.shape[1] < width, (
+        f"one or more image dimensions less than crop size,"
+        f" got image {(width, height)} vs crop {size_crop})!"
+    )
 
     ratio_x, ratio_y = size_crop[0] / width, size_crop[1] / height
 
