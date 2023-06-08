@@ -186,7 +186,8 @@ class InferenceONNX:
 
     def process_video(self, filename_source, prefix_target=None,
                       suffix_target=None, confidence=0.45, codec='mp4v',
-                      max_frames=0, progress=True, debug=False, feedback=None):
+                      ext='mp4', max_frames=0, progress=True,
+                      debug=False, feedback=None):
         prefix_target = prefix_target or osp.dirname(filename_source)
         assert osp.isdir(prefix_target), \
             f"Prefix '{prefix_target}' is not a valid directory!"
@@ -213,7 +214,7 @@ class InferenceONNX:
                         video_source.get(cv.CAP_PROP_FRAME_HEIGHT))
                 w, h = tuple(map(int, (w, h)))
                 filename_target = osp.join(prefix_target, osp.basename(
-                    f"{osp.splitext(filename_source)[0]}.{suffix_target}.mp4"
+                    f"{osp.splitext(filename_source)[0]}.{suffix_target}.{ext}"
                 ))  # TODO: file extension from codec mapping
                 video_target = cv.VideoWriter(filename_target,
                                               cv.VideoWriter_fourcc(*codec),
@@ -302,7 +303,7 @@ class InferenceONNX:
         return boxes_total, tiles_total, times_total
 
     def process_videos(self, filenames, prefix_target=None, suffix_target=None,
-                       confidence=0.45, codec='mp4v',
+                       confidence=0.45, codec='mp4v', ext='mp4',
                        max_files=0, max_frames=0,
                        progress=True, debug=False):
         boxes_total = {}
@@ -327,6 +328,7 @@ class InferenceONNX:
                 suffix_target=suffix_target,
                 confidence=confidence,
                 codec=codec,
+                ext=ext,
                 max_frames=max_frames,
                 progress=progress,
                 debug=debug,
@@ -341,7 +343,7 @@ class InferenceONNX:
         return boxes_total, tiles_total, times_total
 
     def process_files(self, filenames, prefix_target=None, suffix_target=None,
-                      confidence=0.45, codec='mp4v',
+                      confidence=0.45, codec='mp4v', ext='mp4',
                       max_files=0, max_frames=0,
                       progress=True, debug=False):
         filenames_images = []
