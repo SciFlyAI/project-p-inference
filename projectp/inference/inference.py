@@ -223,6 +223,7 @@ class InferenceONNX:
                     while True:
                         results['time_start'] = perf_counter()
                         ok, frame = video_source.read()
+                        ok = ok and frame is not None  # paranoid mode: on
                         results['index_frame'] += 1
                         if not ok or results['index_frame'] >= max_frames:
                             break
@@ -231,8 +232,9 @@ class InferenceONNX:
                         frame = self._process_tiles(frame,
                                                     results,
                                                     confidence=confidence,
-                                                    # time_start=time_start,
                                                     debug=debug)
+                        if frame is None:
+                            break  # exception occurred in _process_tiles
                         count += 1
                         progress_file.update(1)
                         # assert frame is not None, f"Failed to process frame#{count}!"
