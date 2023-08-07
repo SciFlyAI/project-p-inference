@@ -12,21 +12,23 @@ if __name__ == '__main__':
 
     parser = ArgumentParser()
     parser.add_argument('sources', nargs='+', metavar='FILE',
-                        help='images/videos to predict', type=str)
+                        help="images/videos to predict", type=str)
     parser.add_argument('-o', '--output', default=None, metavar='PATH',
-                        help='path to predictions output', type=str)
+                        help="path to predictions output", type=str)
     parser.add_argument('-m', '--model', required=True, metavar='PATH',
-                        help='path to model to inference (multiple)', type=str)
+                        help="path to model to inference (multiple)", type=str)
     parser.add_argument('-p', '--prefix', default=None, metavar='PATH',
-                        help='path prefix for the input files', type=str)
+                        help="path prefix for the input files", type=str)
     parser.add_argument('--max-files', default=0, metavar='COUNT',
-                        help='limit input files (may be negative)', type=int)
+                        help="limit input files (may be negative)", type=int)
     parser.add_argument('--max-frames', default=0, metavar='COUNT',
-                        help='limit video frames (may be negative)', type=int)
+                        help="limit video frames (may be negative)", type=int)
+    parser.add_argument('--shape', default='dot', metavar='TYPE',
+                        help="detections shape type ('box' or 'dot')", type=str)
     parser.add_argument('-s', '--silent', action='store_true',
-                        help='do not display progress (display by default)')
+                        help="do not display progress (display by default)")
     parser.add_argument('-d', '--debug', action='store_true',
-                        help='print debug info (off by default)')
+                        help="print debug info (off by default)")
     args = parser.parse_args()
 
     prefix = args.prefix or '.'
@@ -49,7 +51,7 @@ if __name__ == '__main__':
     boxes_total, tiles_total, times_total = inference_onnx.process_files(
         sources, prefix_target=prefix_target,
         max_files=args.max_files, max_frames=args.max_frames,
-        progress=not args.silent, debug=args.debug
+        progress=not args.silent, shape=args.shape, debug=args.debug
     )
     time_wall = 0.0
     for k, v in times_total.items():

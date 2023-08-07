@@ -134,19 +134,31 @@ def get_colors(detections):
 
 def draw_detections(frame, detections, font_face=cv.FONT_HERSHEY_COMPLEX_SMALL,
                     font_scale=2, font_thickness=3,
-                    text_origin_x=None, text_origin_y=None):
+                    text_origin_x=None, text_origin_y=None,
+                    shape=None):
     scma = get_colors(detections)  # TODO: replace with numpy array
 
-    coords_all = (
-            detections[..., 0:2] +
-            (detections[..., 2:4] - detections[..., 0:2]) / 2
-    )
+    assert shape in ['box', 'dot'], "Detection shape must be either 'box' or 'dot'!"
+    if shape == 'box':
+        coords_all = detections
+    elif shape == 'dot':
+        coords_all = (
+                detections[..., 0:2] +
+                (detections[..., 2:4] - detections[..., 0:2]) / 2
+        )
+    else:
+        raise "This should never happen!"
     for i, coords in enumerate(coords_all):
         color = (
                 np.array(scma.to_rgba(i)[:3]) * 255
         ).round().astype('uint8').tolist()
-        frame = cv.circle(frame, (coords.round().astype('int')), radius=2,
-                          color=color, thickness=2)
+        if shape == 'box':
+            frame = cv.rectangle(frame, coords[:2].round().astype('int'),
+                                 coords[2:4].round().astype('int'), color=color,
+                                 thickness=2)
+        else:
+            frame = cv.circle(frame, (coords.round().astype('int')), radius=2,
+                              color=color, thickness=2)
     text = f"Detected: {len(detections)}"
     text_size = cv.getTextSize(text, font_face, font_scale, font_thickness)
     text_origin = text_origin_x or 32, text_origin_y or text_size[0][1] * 1.5

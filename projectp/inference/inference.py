@@ -41,7 +41,7 @@ class InferenceONNX:
         self.input = self.session.get_inputs()[0].shape
         self.log = log
 
-    def _process_tiles(self, frame, results, confidence=0.45, debug=False):
+    def _process_tiles(self, frame, results, confidence=0.45, shape=None, debug=False):
         time_start = results['time_start'] or perf_counter()
         boxes_frame = np.zeros((0, 6), dtype=np.float32)
         try:
@@ -128,12 +128,12 @@ class InferenceONNX:
         results['times']['frames'].append(perf_counter() - time_start)
 
         # Draw detections and save to video
-        frame = draw_detections(frame, boxes_frame[:, 1:])
+        frame = draw_detections(frame, boxes_frame[:, 1:], shape=shape)
         return frame
 
     def process_image(self, filename_source, prefix_target=None,
-                      suffix_target=None, confidence=0.45, debug=False,
-                      feedback=None):
+                      suffix_target=None, confidence=0.45, shape=None,
+                      debug=False, feedback=None):
         prefix_target = prefix_target or osp.dirname(filename_source)
         assert osp.isdir(prefix_target), \
             f"Prefix '{prefix_target}' is not a valid directory!"
@@ -157,9 +157,8 @@ class InferenceONNX:
                 results['time_start'] = perf_counter()
                 frame = self._process_tiles(cv.cvtColor(image_source,
                                                         cv.COLOR_BGR2RGB),
-                                            results,
-                                            confidence=confidence,
-                                            debug=debug)
+                                            results, confidence=confidence,
+                                            shape=shape, debug=debug)
                 assert frame is not None, f"Failed to process {filename_source}!"
                 cv.imwrite(filename_target, cv.cvtColor(frame, cv.COLOR_RGB2BGR))
                 if debug:
@@ -186,7 +185,7 @@ class InferenceONNX:
 
     def process_video(self, filename_source, prefix_target=None,
                       suffix_target=None, confidence=0.45, codec='mp4v',
-                      ext='mp4', max_frames=0, progress=True,
+                      ext='mp4', max_frames=0, progress=True, shape=None,
                       debug=False, feedback=None):
         prefix_target = prefix_target or osp.dirname(filename_source)
         assert osp.isdir(prefix_target), \
@@ -233,7 +232,7 @@ class InferenceONNX:
                         frame = self._process_tiles(frame,
                                                     results,
                                                     confidence=confidence,
-                                                    debug=debug)
+                                                    shape=shape, debug=debug)
                         if frame is None:
                             break  # exception occurred in _process_tiles
                         count += 1
@@ -271,7 +270,7 @@ class InferenceONNX:
 
     def process_images(self, filenames, prefix_target=None, suffix_target=None,
                        confidence=0.45, max_files=0,
-                       progress=True, debug=False):
+                       progress=True, shape=None, debug=False):
         boxes_total = {}
         tiles_total = {}
         times_total = {}
@@ -292,6 +291,7 @@ class InferenceONNX:
                 prefix_target=prefix_target,
                 suffix_target=suffix_target,
                 confidence=confidence,
+                shape=shape,
                 debug=debug,
                 feedback=feedback
             )
@@ -305,7 +305,7 @@ class InferenceONNX:
     def process_videos(self, filenames, prefix_target=None, suffix_target=None,
                        confidence=0.45, codec='mp4v', ext='mp4',
                        max_files=0, max_frames=0,
-                       progress=True, debug=False):
+                       progress=True, shape=None, debug=False):
         boxes_total = {}
         tiles_total = {}
         times_total = {}
@@ -331,6 +331,7 @@ class InferenceONNX:
                 ext=ext,
                 max_frames=max_frames,
                 progress=progress,
+                shape=shape,
                 debug=debug,
                 feedback=feedback
             )
@@ -345,7 +346,7 @@ class InferenceONNX:
     def process_files(self, filenames, prefix_target=None, suffix_target=None,
                       confidence=0.45, codec='mp4v', ext='mp4',
                       max_files=0, max_frames=0,
-                      progress=True, debug=False):
+                      progress=True, shape=None, debug=False):
         filenames_images = []
         filenames_videos = []
         filenames_unknown = []
@@ -385,6 +386,7 @@ class InferenceONNX:
             confidence=confidence,
             max_files=max_files,
             progress=progress,
+            shape=shape,
             debug=debug
         )
         boxes_total.update(boxes_images)
@@ -400,6 +402,7 @@ class InferenceONNX:
             max_files=max_files,
             max_frames=max_frames,
             progress=progress,
+            shape=shape,
             debug=debug
         )
         boxes_total.update(boxes_videos)
