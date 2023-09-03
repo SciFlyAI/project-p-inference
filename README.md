@@ -9,6 +9,7 @@ Inference package for Project P. This package may be used as a stand-alone progr
 Install via `pip`:
 
 ```shell
+pip install -r https://raw.githubusercontent.com/Shining-Future/project-p-inference/master/requirements.txt
 pip install -e git+https://github.com/Shining-Future/project-p-inference.git#egg=projectp
 ```
 
