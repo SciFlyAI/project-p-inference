@@ -1,5 +1,5 @@
 from os import path as osp
-from time import perf_counter
+from time import perf_counter, strftime, time_ns
 
 import cv2 as cv
 import numpy as np
@@ -134,14 +134,23 @@ class InferenceONNX:
         frame = draw_detections(frame, boxes_frame[:, 1:], shape=shape)
         return frame
 
-    def process_image(self, filename_source, prefix_target=None,
+    def process_image(self, source, prefix_target=None,
                       suffix_target=None, confidence=0.45, shape=None,
                       debug=False, feedback=None):
-        prefix_target = prefix_target or osp.dirname(filename_source)
-        assert osp.isdir(prefix_target), \
-            f"Prefix '{prefix_target}' is not a valid directory!"
-        suffix_target = suffix_target or 'output'
-        image_source = cv.imread(filename_source, cv.IMREAD_COLOR)
+        """Tile-wise image processing (inference) method
+
+        Args:
+            source (str | numpy.ndarray): image source - either path or numpy array
+            prefix_target (str, optional): source file parent directory. Defaults to None.
+            suffix_target (str, optional): target file suffix. Defaults to '.output'.
+            confidence (float, optional): detection confidence threshold. Defaults to 0.45.
+            shape (str, optional): processing:draw_detection shape. Defaults to None.
+            debug (bool, optional): debugging mode - verbose output. Defaults to False.
+            feedback (dict, optional): dictionary with control variables. Defaults to None.
+
+        Returns:
+            tuple: a tuple of predicted boxes (with confidences and labels), tile map, times
+        """
         results = {
             'index_frame': 0,
             'time_start': None,
@@ -152,10 +161,23 @@ class InferenceONNX:
                 'total': None
             }
         }
+        if isinstance(source, str):
+            filename_source = source
+            image_source = cv.imread(filename_source, cv.IMREAD_COLOR)
+        elif isinstance(source, np.ndarray):
+            filename_source = f"/tmp/{strftime('%Y-%m-%d-%H-%M-%S')}-{int(time_ns() % 10e9)}.npy"
+            image_source = source
+        else:
+            log.error(f"{type(source)} is invalid source type!")
+            return results['boxes'], results['tiles'], results['times']
+        prefix_target = prefix_target or osp.dirname(filename_source)
+        assert osp.isdir(prefix_target), \
+            f"Prefix '{prefix_target}' is not a valid directory!"
+        suffix_target = '.output' if suffix_target is None else suffix_target  # TODO: move to const
         try:
             if image_source is not None:
                 filename_target = osp.join(prefix_target, osp.basename(
-                    f"{osp.splitext(filename_source)[0]}.{suffix_target}.jpg"
+                    f"{osp.splitext(filename_source)[0]}{suffix_target}.jpg"
                 ))
                 results['time_start'] = perf_counter()
                 frame = self._process_tiles(cv.cvtColor(image_source,
