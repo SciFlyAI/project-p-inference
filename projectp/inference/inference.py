@@ -136,7 +136,7 @@ class InferenceONNX:
 
     def process_image(self, source, prefix_target=None,
                       suffix_target=None, confidence=0.45, shape=None,
-                      debug=False, feedback=None):
+                      save=True, debug=False, feedback=None):
         """Tile-wise image processing (inference) method
 
         Args:
@@ -145,6 +145,7 @@ class InferenceONNX:
             suffix_target (str, optional): target file suffix. Defaults to '.output'.
             confidence (float, optional): detection confidence threshold. Defaults to 0.45.
             shape (str, optional): processing:draw_detection shape. Defaults to None.
+            save (bool, optional): whether save output with predictions. Defaults to True.
             debug (bool, optional): debugging mode - verbose output. Defaults to False.
             feedback (dict, optional): dictionary with control variables. Defaults to None.
 
@@ -185,7 +186,8 @@ class InferenceONNX:
                                             results, confidence=confidence,
                                             shape=shape, debug=debug)
                 assert frame is not None, f"Failed to process {filename_source}!"
-                cv.imwrite(filename_target, cv.cvtColor(frame, cv.COLOR_RGB2BGR))
+                if save:
+                    cv.imwrite(filename_target, cv.cvtColor(frame, cv.COLOR_RGB2BGR))
                 if debug:
                     log.debug(f"Image '{filename_target}' done in"
                               f" {results['times']['frames'][-1]:.3f} sec")
@@ -295,7 +297,7 @@ class InferenceONNX:
 
     def process_images(self, filenames, prefix_target=None, suffix_target=None,
                        confidence=0.45, max_files=0,
-                       progress=True, shape=None, debug=False):
+                       progress=True, shape=None, save=True, debug=False):
         boxes_total = {}
         tiles_total = {}
         times_total = {}
@@ -317,6 +319,7 @@ class InferenceONNX:
                 suffix_target=suffix_target,
                 confidence=confidence,
                 shape=shape,
+                save=save,
                 debug=debug,
                 feedback=feedback
             )
