@@ -40,13 +40,27 @@ class InferenceONNX:
         assert isinstance(path, str), f"Path must be a single path!"
         prefix = prefix or '.'
         assert osp.isdir(prefix), f"Prefix must be a valid directory or None!"
-        self.session = InferenceSession(osp.join(prefix, path), sess_options=sess_options, providers=providers)
+        self.session = InferenceSession(osp.join(prefix, path), sess_options=sess_options,
+                                        providers=providers)
         self.input = self.session.get_inputs()[0].shape
         self.log = log
 
     def _process_tiles(self, frame, results, confidence=0.45, shape=None, debug=False):
+        """Low-level tile-wise inference method
+
+        Args:
+            frame (numpy.ndarray): source image for detection
+            results (dict): dictionary with 'boxes' (absolute [index, x1, y1, x2, y2, score, class]),
+             'tiles' and 'times' entries
+            confidence (float, optional): confidence score threshold. Defaults to 0.45.
+            shape (str, optional): processing:draw_detections shape. Defaults to None.
+            debug (bool, optional): debugging mode - verbose output. Defaults to False.
+
+        Returns:
+            numpy.ndarray: frame with detections (processing:draw_detections)
+        """
         time_start = results['time_start'] or perf_counter()
-        boxes_frame = np.zeros((0, 6), dtype=np.float32)
+        boxes_frame = np.zeros((0, 6), dtype=np.float32)  # [cx, cy, w, h, confidence, label]
         try:
             tiles = get_tiles(frame, size_crop=self.input[-1:-3:-1],
                               log=self.log)
@@ -74,7 +88,7 @@ class InferenceONNX:
                 boxes = self.session.run(
                     None,
                     {self.session.get_inputs()[0].name: batch}
-                )[0][0]
+                )[0][0]  # relative yolo coordinates
                 tile.bboxes = np.zeros((0, 6), dtype=np.float32)  # <- boxes
                 if debug:
                     log.debug(
@@ -83,19 +97,19 @@ class InferenceONNX:
                         f" boxes = {boxes.shape}"
                     )
                 boxes_norm = yolo_to_xyxy(boxes, frame, (1, 1),
-                                          tile.x1, tile.y1)
+                                          tile.x1, tile.y1)  # absolute [x1, y1, x2, y2, score, class]
                 boxes_norm = absolute_to_relative(boxes_norm,
-                                                  frame)
+                                                  frame)  # relative [x1, y1, x2, y2, score, class]
 
-                # NMS
-                boxes_nms = boxes_norm[boxes_norm[..., 4] > confidence]
+                # Initial NMS/WBF
+                boxes_nms = boxes_norm[boxes_norm[..., 4] > confidence]  # relative [x1, y1, x2, y2, score, class]
 
                 if debug:
                     log.debug(f"Boxes frame = {boxes_frame.shape},"
                               f" boxes NMS = {boxes_nms.shape}")
                 boxes_wbf = weighted_boxes_fusion(
-                    (np.clip(boxes_nms[..., :4], 0, 1),
-                     np.clip(boxes_frame[..., :4], 0, 1)
+                    (np.clip(boxes_nms[..., :4], 0, 1),  # current boxes
+                     np.clip(boxes_frame[..., :4], 0, 1)  # accumulated boxes
                      ),
                     (boxes_nms[..., 4],
                      boxes_frame[..., 4]
@@ -106,11 +120,12 @@ class InferenceONNX:
                     iou_thr=0.175,  # 0.175
                     skip_box_thr=confidence,
                     conf_type='max'
-                )
-                boxes_wbf = np.column_stack(boxes_wbf)
+                )  # (boxes, scores, classes)
+                boxes_wbf = np.column_stack(boxes_wbf)  # relative [x1, y1, x2, y2, score, class]
 
-                boxes_frame = np.vstack((boxes_frame, boxes_wbf))
+                boxes_frame = np.vstack((boxes_frame, boxes_wbf))  # relative [x1, y1, x2, y2, score, class]
 
+        # NMS over WBF / TODO: ablation study
         if len(boxes_frame):
             boxes_nms = nms(
                 (boxes_frame[..., :4],
@@ -119,19 +134,19 @@ class InferenceONNX:
                  ),
                 (boxes_frame[..., 5].round(),
                  ), iou_thr=0.65  # 0.175
-            )
-            boxes_nms = np.column_stack(boxes_nms)
+            )  # (boxes, scores, classes)
+            boxes_nms = np.column_stack(boxes_nms)  # relative [x1, y1, x2, y2, score, class]
         else:
             boxes_nms = boxes_frame
-        boxes_frame = relative_to_absolute(boxes_nms, frame)
+        boxes_frame = relative_to_absolute(boxes_nms, frame)  # absolute [x1, y1, x2, y2, score, class]
         # Prepend frame# to detection vector
-        boxes_frame = np.insert(boxes_frame, 0, results['index_frame'], -1)
-        results['boxes'] = np.vstack([results['boxes'], boxes_frame])
+        boxes_frame = np.insert(boxes_frame, 0, results['index_frame'], -1)  # absolute [index, x1, y1, x2, y2, score, class]
+        results['boxes'] = np.vstack([results['boxes'], boxes_frame])  # absolute [index, x1, y1, x2, y2, score, class]
         results['tiles'].append(tiles)
         results['times']['frames'].append(perf_counter() - time_start)
 
         # Draw detections and save to video
-        frame = draw_detections(frame, boxes_frame[:, 1:], shape=shape)
+        frame = draw_detections(frame, boxes_frame[:, 1:], shape=shape)  # TODO: make optional
         return frame
 
     def process_image(self, source, prefix_target=None,
@@ -144,7 +159,7 @@ class InferenceONNX:
             prefix_target (str, optional): source file parent directory. Defaults to None.
             suffix_target (str, optional): target file suffix. Defaults to '.output'.
             confidence (float, optional): detection confidence threshold. Defaults to 0.45.
-            shape (str, optional): processing:draw_detection shape. Defaults to None.
+            shape (str, optional): processing:draw_detections shape. Defaults to None.
             save (bool, optional): whether save output with predictions. Defaults to True.
             debug (bool, optional): debugging mode - verbose output. Defaults to False.
             feedback (dict, optional): dictionary with control variables. Defaults to None.
