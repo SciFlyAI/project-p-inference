@@ -29,15 +29,18 @@ log = LogStub()
 
 
 class InferenceONNX:
-    def __init__(self, path: str, prefix: str = None, log=log):
+    def __init__(self, path: str, prefix: str = None, log=log, sess_options=None, providers=None):
         """
         path: path to the model to predict from (a single model)
         prefix: path prefix for the model(s)
+        log: logging facility
+        sess_options: ONNX Runtime session options
+        providers: a collection of ONNX execution providers
         """
         assert isinstance(path, str), f"Path must be a single path!"
         prefix = prefix or '.'
         assert osp.isdir(prefix), f"Prefix must be a valid directory or None!"
-        self.session = InferenceSession(osp.join(prefix, path))
+        self.session = InferenceSession(osp.join(prefix, path), sess_options=sess_options, providers=providers)
         self.input = self.session.get_inputs()[0].shape
         self.log = log
 
