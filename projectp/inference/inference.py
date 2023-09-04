@@ -146,7 +146,8 @@ class InferenceONNX:
         results['times']['frames'].append(perf_counter() - time_start)
 
         # Draw detections and save to video
-        frame = draw_detections(frame, boxes_frame[:, 1:], shape=shape)  # TODO: make optional
+        if shape is not None:
+            frame = draw_detections(frame, boxes_frame[:, 1:], shape=shape)
         return frame
 
     def process_image(self, source, prefix_target=None,
