@@ -1,10 +1,13 @@
 from os import makedirs, path as osp
 
+from pathlib import Path
+
 from projectp.inference import InferenceONNX
 from projectp.processing import get_percentile
 from projectp.utils import LogStub
 
-
+# todo replace with python logging
+# check integrations with tqdm
 log = LogStub()
 
 if __name__ == '__main__':
@@ -13,7 +16,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('sources', nargs='+', metavar='FILE',
                         help="images/videos to predict", type=str)
-    parser.add_argument('-o', '--output', default=None, metavar='PATH',
+    parser.add_argument('-o', '--output', default='output', metavar='PATH',
                         help="path to predictions output", type=str)
     parser.add_argument('-m', '--model', required=True, metavar='PATH',
                         help="path to model to inference (multiple)", type=str)

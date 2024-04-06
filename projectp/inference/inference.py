@@ -1,4 +1,5 @@
 from os import path as osp
+from pathlib import Path
 from time import perf_counter, strftime, time_ns
 
 import cv2 as cv
@@ -330,7 +331,7 @@ class InferenceONNX:
         for filename_source in tqdm(filenames, position=0,
                                     leave=True, disable=not progress or debug):
             boxes_image, tiles_image, times_image = self.process_image(
-                filename_source=filename_source,
+                source=filename_source,
                 prefix_target=prefix_target,
                 suffix_target=suffix_target,
                 confidence=confidence,
