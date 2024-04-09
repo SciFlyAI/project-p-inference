@@ -18,5 +18,5 @@ setup(
         # 'opencv-python-headless==4.7.0.72',
         # 'pandas==1.5.0',
         # 'tqdm==4.62.3'
-    ]
+    ],
 )

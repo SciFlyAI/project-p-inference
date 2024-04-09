@@ -40,19 +40,19 @@ def nms(boxes, scores, thresh):
     y2 = boxes[:, 3]
 
     areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-    order = scores.argsort()[::-1] # get boxes with more ious first
+    order = scores.argsort()[::-1]  # get boxes with more ious first
 
     keep = []
     while order.size > 0:
-        i = order[0] # pick maxmum iou box
+        i = order[0]  # pick maxmum iou box
         keep.append(i)
         xx1 = np.maximum(x1[i], x1[order[1:]])
         yy1 = np.maximum(y1[i], y1[order[1:]])
         xx2 = np.minimum(x2[i], x2[order[1:]])
         yy2 = np.minimum(y2[i], y2[order[1:]])
 
-        w = np.maximum(0.0, xx2 - xx1 + 1) # maximum width
-        h = np.maximum(0.0, yy2 - yy1 + 1) # maxiumum height
+        w = np.maximum(0.0, xx2 - xx1 + 1)  # maximum width
+        h = np.maximum(0.0, yy2 - yy1 + 1)  # maxiumum height
         area = w * h
         overlap = area / (areas[i] + areas[order[1:]] - area)
 
@@ -66,7 +66,7 @@ def convert_to_pandas(boxes_total: Dict[str, np.ndarray]):
     try:
         import pandas as pd
     except ImportError:
-        log.error(f"install Pandas to be able to convert to DataFrame!")
+        log.error("install Pandas to be able to convert to DataFrame!")
         return None
 
     frame_data = pd.DataFrame()
@@ -75,14 +75,25 @@ def convert_to_pandas(boxes_total: Dict[str, np.ndarray]):
         print(key, boxes_total[key].shape)
         frame_video = pd.DataFrame(
             boxes_total[key],
-            columns=['frame', 'center_x', 'center_y',
-                     'width', 'height', 'confidence', 'class']
+            columns=[
+                'frame',
+                'center_x',
+                'center_y',
+                'width',
+                'height',
+                'confidence',
+                'class',
+            ],
         )
         frame_video['path'] = osp.realpath(osp.abspath(osp.dirname(key)))
         frame_video['filename'] = osp.basename(key)
         frame_data = pd.concat(
-            [frame_data, frame_video.apply(partial(pd.to_numeric,
-                                                   downcast='integer'),
-                                           errors='ignore')])
+            [
+                frame_data,
+                frame_video.apply(
+                    partial(pd.to_numeric, downcast='integer'), errors='ignore'
+                ),
+            ]
+        )
 
     return frame_data
