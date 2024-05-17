@@ -2,9 +2,7 @@ line-length = 80
 
 [lint]
 
-extend-ignore = [
-    "E1", "E2", "E3", "W"
-]
+
 
 [format]
 quote-style = "preserve"
