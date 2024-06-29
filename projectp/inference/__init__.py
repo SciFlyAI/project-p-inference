@@ -1,1 +1,1 @@
-from .inference import InferenceONNX  # noqa: F401
+from .inference import InferenceOnnxTileNms  # noqa: F401

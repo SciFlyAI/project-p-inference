@@ -28,7 +28,7 @@ except ImportError:
     tqdm = ProgressStub
 
 
-class InferenceONNX:
+class InferenceOnnxTileNms:
     def __init__(
         self,
         path: str,

@@ -4,7 +4,7 @@ from os import makedirs
 from os import path as osp
 
 
-from projectp.inference import InferenceONNX
+from projectp.inference import InferenceOnnxTileNms
 from projectp.processing import get_percentile
 from projectp.utils.logs import log
 
@@ -80,7 +80,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     prefix = args.prefix or '.'
-    inference_onnx = InferenceONNX(args.model)
+    inference_onnx = InferenceOnnxTileNms(args.model)
 
     sources = []
     # max_files = args.max_files or None
