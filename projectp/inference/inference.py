@@ -28,7 +28,7 @@ except ImportError:
     tqdm = ProgressStub
 
 
-class InferenceOnnxTileNms:
+class InferenceBase:
     def __init__(
         self,
         path: str,
@@ -55,126 +55,10 @@ class InferenceOnnxTileNms:
         self.input = self.session.get_inputs()[0].shape
         self.log = log
 
-    def _process_tiles(
+    def _process_frame(
         self, frame, results, confidence=0.45, shape=None, debug=False
     ):
-        """Low-level tile-wise inference method
-
-        Args:
-            frame (numpy.ndarray): source image for detection
-            results (dict): dictionary with 'boxes' (absolute [index, x1, y1, x2, y2, score, class]),
-             'tiles' and 'times' entries
-            confidence (float, optional): confidence score threshold. Defaults to 0.45.
-            shape (str, optional): processing:draw_detections shape. Defaults to None.
-            debug (bool, optional): debugging mode - verbose output. Defaults to False.
-
-        Returns:
-            numpy.ndarray: frame with detections (processing:draw_detections)
-        """
-        time_start = results['time_start'] or perf_counter()
-        boxes_frame = np.zeros(
-            (0, 6), dtype=np.float32
-        )  # [cx, cy, w, h, confidence, label]
-        try:
-            tiles = get_tiles(
-                frame, size_crop=self.input[-1:-3:-1], log=self.log
-            )
-        except AssertionError as ex:
-            log.error(ex)
-            tiles = np.array([])
-            boxes_frame = np.insert(boxes_frame, 0, results['index_frame'], -1)
-            results['boxes'] = np.vstack([results['boxes'], boxes_frame])
-            results['tiles'].append(tiles)
-            results['times']['frames'].append(perf_counter() - time_start)
-            return None
-        for i in range(tiles.shape[1]):
-            for j in range(tiles.shape[0]):
-                tile = tiles[j, i]
-                image = cv.cvtColor(frame[tile.slice], cv.COLOR_BGR2RGB)
-                # log.debug(f"Image shape = {image.shape},"
-                #           f" slice = {tile.slice}")
-
-                # ONNX inference
-                batch = np.moveaxis(image, -1, 0)[None, ...] / np.float32(255)
-                # TODO: batch size > 1
-                boxes = self.session.run(
-                    None, {self.session.get_inputs()[0].name: batch}
-                )[0][0]  # relative yolo coordinates
-                tile.bboxes = np.zeros((0, 6), dtype=np.float32)  # <- boxes
-                if debug:
-                    log.debug(
-                        f"Patch {(i, j)} "
-                        f"{(tile.x1, tile.y1, tile.x2, tile.y2)},"
-                        f" boxes = {boxes.shape}"
-                    )
-                boxes_norm = yolo_to_xyxy(
-                    boxes, frame, (1, 1), tile.x1, tile.y1
-                )  # absolute [x1, y1, x2, y2, score, class]
-                boxes_norm = absolute_to_relative(
-                    boxes_norm, frame
-                )  # relative [x1, y1, x2, y2, score, class]
-
-                # Initial NMS/WBF
-                boxes_nms = boxes_norm[
-                    boxes_norm[..., 4] > confidence
-                ]  # relative [x1, y1, x2, y2, score, class]
-
-                if debug:
-                    log.debug(
-                        f"Boxes frame = {boxes_frame.shape},"
-                        f" boxes NMS = {boxes_nms.shape}"
-                    )
-                boxes_wbf = weighted_boxes_fusion(
-                    (
-                        np.clip(boxes_nms[..., :4], 0, 1),  # current boxes
-                        np.clip(
-                            boxes_frame[..., :4], 0, 1
-                        ),  # accumulated boxes
-                    ),
-                    (boxes_nms[..., 4], boxes_frame[..., 4]),
-                    (boxes_nms[..., 5].round(), boxes_frame[..., 5].round()),
-                    iou_thr=0.175,  # 0.175
-                    skip_box_thr=confidence,
-                    conf_type='max',
-                )  # (boxes, scores, classes)
-                boxes_wbf = np.column_stack(
-                    boxes_wbf
-                )  # relative [x1, y1, x2, y2, score, class]
-
-                boxes_frame = np.vstack(
-                    (boxes_frame, boxes_wbf)
-                )  # relative [x1, y1, x2, y2, score, class]
-
-        # NMS over WBF / TODO: ablation study
-        if len(boxes_frame):
-            boxes_nms = nms(
-                (boxes_frame[..., :4],),
-                (boxes_frame[..., 4],),
-                (boxes_frame[..., 5].round(),),
-                iou_thr=0.65,  # 0.175
-            )  # (boxes, scores, classes)
-            boxes_nms = np.column_stack(
-                boxes_nms
-            )  # relative [x1, y1, x2, y2, score, class]
-        else:
-            boxes_nms = boxes_frame
-        boxes_frame = relative_to_absolute(
-            boxes_nms, frame
-        )  # absolute [x1, y1, x2, y2, score, class]
-        # Prepend frame# to detection vector
-        boxes_frame = np.insert(
-            boxes_frame, 0, results['index_frame'], -1
-        )  # absolute [index, x1, y1, x2, y2, score, class]
-        results['boxes'] = np.vstack(
-            [results['boxes'], boxes_frame]
-        )  # absolute [index, x1, y1, x2, y2, score, class]
-        results['tiles'].append(tiles)
-        results['times']['frames'].append(perf_counter() - time_start)
-
-        # Draw detections and save to video
-        if shape is not None:
-            frame = draw_detections(frame, boxes_frame[:, 1:], shape=shape)
-        return frame
+        raise NotImplementedError
 
     def process_image(
         self,
@@ -234,7 +118,7 @@ class InferenceOnnxTileNms:
                     ),
                 )
                 results['time_start'] = perf_counter()
-                frame = self._process_tiles(
+                frame = self._process_frame(
                     cv.cvtColor(image_source, cv.COLOR_BGR2RGB),
                     results,
                     confidence=confidence,
@@ -341,7 +225,7 @@ class InferenceOnnxTileNms:
                             break
                         else:
                             frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
-                        frame = self._process_tiles(
+                        frame = self._process_frame(
                             frame,
                             results,
                             confidence=confidence,
@@ -561,3 +445,126 @@ class InferenceOnnxTileNms:
         times_total.update(times_videos)
 
         return boxes_total, tiles_total, times_total
+
+
+class InferenceOnnxTileNms(InferenceBase):
+    def _process_frame(
+        self, frame, results, confidence=0.45, shape=None, debug=False
+    ):
+        """Low-level tile-wise inference method
+
+        Args:
+            frame (numpy.ndarray): source image for detection
+            results (dict): dictionary with 'boxes' (absolute [index, x1, y1, x2, y2, score, class]),
+             'tiles' and 'times' entries
+            confidence (float, optional): confidence score threshold. Defaults to 0.45.
+            shape (str, optional): processing:draw_detections shape. Defaults to None.
+            debug (bool, optional): debugging mode - verbose output. Defaults to False.
+
+        Returns:
+            numpy.ndarray: frame with detections (processing:draw_detections)
+        """
+        time_start = results['time_start'] or perf_counter()
+        boxes_frame = np.zeros(
+            (0, 6), dtype=np.float32
+        )  # [cx, cy, w, h, confidence, label]
+        try:
+            tiles = get_tiles(
+                frame, size_crop=self.input[-1:-3:-1], log=self.log
+            )
+        except AssertionError as ex:
+            log.error(ex)
+            tiles = np.array([])
+            boxes_frame = np.insert(boxes_frame, 0, results['index_frame'], -1)
+            results['boxes'] = np.vstack([results['boxes'], boxes_frame])
+            results['tiles'].append(tiles)
+            results['times']['frames'].append(perf_counter() - time_start)
+            return None
+        for i in range(tiles.shape[1]):
+            for j in range(tiles.shape[0]):
+                tile = tiles[j, i]
+                image = cv.cvtColor(frame[tile.slice], cv.COLOR_BGR2RGB)
+                # log.debug(f"Image shape = {image.shape},"
+                #           f" slice = {tile.slice}")
+
+                # ONNX inference
+                batch = np.moveaxis(image, -1, 0)[None, ...] / np.float32(255)
+                # TODO: batch size > 1
+                boxes = self.session.run(
+                    None, {self.session.get_inputs()[0].name: batch}
+                )[0][0]  # relative yolo coordinates
+                tile.bboxes = np.zeros((0, 6), dtype=np.float32)  # <- boxes
+                if debug:
+                    log.debug(
+                        f"Patch {(i, j)} "
+                        f"{(tile.x1, tile.y1, tile.x2, tile.y2)},"
+                        f" boxes = {boxes.shape}"
+                    )
+                boxes_norm = yolo_to_xyxy(
+                    boxes, frame, (1, 1), tile.x1, tile.y1
+                )  # absolute [x1, y1, x2, y2, score, class]
+                boxes_norm = absolute_to_relative(
+                    boxes_norm, frame
+                )  # relative [x1, y1, x2, y2, score, class]
+
+                # Initial NMS/WBF
+                boxes_nms = boxes_norm[
+                    boxes_norm[..., 4] > confidence
+                ]  # relative [x1, y1, x2, y2, score, class]
+
+                if debug:
+                    log.debug(
+                        f"Boxes frame = {boxes_frame.shape},"
+                        f" boxes NMS = {boxes_nms.shape}"
+                    )
+                boxes_wbf = weighted_boxes_fusion(
+                    (
+                        np.clip(boxes_nms[..., :4], 0, 1),  # current boxes
+                        np.clip(
+                            boxes_frame[..., :4], 0, 1
+                        ),  # accumulated boxes
+                    ),
+                    (boxes_nms[..., 4], boxes_frame[..., 4]),
+                    (boxes_nms[..., 5].round(), boxes_frame[..., 5].round()),
+                    iou_thr=0.175,  # 0.175
+                    skip_box_thr=confidence,
+                    conf_type='max',
+                )  # (boxes, scores, classes)
+                boxes_wbf = np.column_stack(
+                    boxes_wbf
+                )  # relative [x1, y1, x2, y2, score, class]
+
+                boxes_frame = np.vstack(
+                    (boxes_frame, boxes_wbf)
+                )  # relative [x1, y1, x2, y2, score, class]
+
+        # NMS over WBF / TODO: ablation study
+        if len(boxes_frame):
+            boxes_nms = nms(
+                (boxes_frame[..., :4],),
+                (boxes_frame[..., 4],),
+                (boxes_frame[..., 5].round(),),
+                iou_thr=0.65,  # 0.175
+            )  # (boxes, scores, classes)
+            boxes_nms = np.column_stack(
+                boxes_nms
+            )  # relative [x1, y1, x2, y2, score, class]
+        else:
+            boxes_nms = boxes_frame
+        boxes_frame = relative_to_absolute(
+            boxes_nms, frame
+        )  # absolute [x1, y1, x2, y2, score, class]
+        # Prepend frame# to detection vector
+        boxes_frame = np.insert(
+            boxes_frame, 0, results['index_frame'], -1
+        )  # absolute [index, x1, y1, x2, y2, score, class]
+        results['boxes'] = np.vstack(
+            [results['boxes'], boxes_frame]
+        )  # absolute [index, x1, y1, x2, y2, score, class]
+        results['tiles'].append(tiles)
+        results['times']['frames'].append(perf_counter() - time_start)
+
+        # Draw detections and save to video
+        if shape is not None:
+            frame = draw_detections(frame, boxes_frame[:, 1:], shape=shape)
+        return frame
