@@ -118,6 +118,14 @@ class InferenceBase:
                     ),
                 )
                 results['time_start'] = perf_counter()
+                h, w = image_source.shape[:2]
+                # FIXME: duplicate code (InferenceBase::process_video)
+                ih, iw = self.input[-2:]
+                ratio = max((w / iw, h / ih))
+                results['ratio'] = ratio
+                results['frame_size'] = (w, h)
+                results['frame_resize_require'] = ratio > 1
+
                 frame = self._process_frame(
                     cv.cvtColor(image_source, cv.COLOR_BGR2RGB),
                     results,
@@ -197,6 +205,12 @@ class InferenceBase:
                     video_source.get(cv.CAP_PROP_FRAME_HEIGHT),
                 )
                 w, h = tuple(map(int, (w, h)))
+                # FIXME: duplicate code (InferenceBase::process_image)
+                ih, iw = self.input[-2:]
+                ratio = max((w / iw, h / ih))
+                results['ratio'] = ratio
+                results['frame_size'] = (w, h)
+                results['frame_resize_require'] = ratio > 1
                 filename_target = osp.join(
                     prefix_target,
                     osp.basename(
@@ -567,4 +581,97 @@ class InferenceOnnxTileNms(InferenceBase):
         # Draw detections and save to video
         if shape is not None:
             frame = draw_detections(frame, boxes_frame[:, 1:], shape=shape)
+        return frame
+
+
+class InferenceOnnxFullEnd2End(InferenceBase):
+    def _process_frame(
+        self, frame, results, confidence=0.45, shape=None, debug=False
+    ):
+        """Low-level tile-wise inference method
+
+        Args:
+            frame (numpy.ndarray): source image for detection
+            results (dict): dictionary with 'boxes' (absolute [index, x1, y1, x2, y2, score, class]),
+             'tiles' and 'times' entries
+            confidence (float, optional): confidence score threshold. Defaults to 0.45.
+            shape (str, optional): processing:draw_detections shape. Defaults to None.
+            debug (bool, optional): debugging mode - verbose output. Defaults to False.
+
+        Returns:
+            numpy.ndarray: frame with detections (processing:draw_detections)
+        """
+        time_start = results['time_start'] or perf_counter()
+        boxes_frame = np.zeros(
+            (0, 6), dtype=np.float32
+        )  # [cx, cy, w, h, confidence, label]
+        boxes_frame = np.zeros((0, 6), dtype=np.float32)
+        frame_resize_require = results['frame_resize_require']
+        # Fit image to the network input size
+        # image = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+        image = frame
+        ratio = results['ratio']
+        if debug:
+            log.debug(f"Scale down = {1 / ratio}, scale up = {ratio}")
+        if frame_resize_require:
+            image = cv.resize(image, None, fx=1 / ratio, fy=1 / ratio)
+        h, w = image.shape[:2]
+        ih, iw = self.input[-2:]
+        if debug:
+            log.debug(
+                f"Padding = (0, {ih - h}), (0, {iw - w}), for {ih=}, {h=}, {iw=}, {w=}"
+            )
+
+        pad_left, pad_bottom = max(0, iw - w), max(0, ih - h)
+        image = cv.copyMakeBorder(
+            image,
+            0,
+            pad_bottom,
+            0,
+            pad_left,
+            cv.BORDER_CONSTANT,
+            None,
+            0,
+        )
+        # ONNX inference
+        batch = np.moveaxis(image, -1, 0)[None, ...] / np.float32(255)
+        # ONNX produces boxes.shape = (N, 7)
+        boxes = self.session.run(
+            None, {self.session.get_inputs()[0].name: batch}
+        )[0][..., 1:]  # TODO: batch size > 1
+        if debug:
+            log.debug(f"Boxes = {boxes.shape}")
+        # ONNX NMS produces absolute coordinates
+        # Normalize (target image)
+        boxes_norm = absolute_to_relative(boxes, image)
+        # assert False
+
+        # NMS
+        boxes_nms = boxes_norm[
+            boxes_norm[..., 4] > confidence
+        ]  # boxes_norm.shape = (N, 6)
+
+        if debug:
+            log.debug(
+                f"Boxes frame = {boxes_frame.shape}, boxes NMS = {boxes_nms.shape}"
+            )
+        boxes_wbf = boxes_nms  # boxes_nms.shape = (N, 6)
+
+        boxes_frame = np.vstack((boxes_frame, boxes_wbf))
+
+        # Denormalize (source frame)
+        boxes_nms = boxes_frame
+        boxes_frame = relative_to_absolute(boxes_nms, image)
+        boxes_frame = np.insert(
+            boxes_frame, 0, results['index_frame'], -1
+        )  # prepend frame# to detection vector
+        results['boxes'] = np.vstack([results['boxes'], boxes_frame])
+        results['times']['frames'].append(perf_counter() - time_start)
+
+        # Draw detections and save to video
+        if frame_resize_require:
+            boxes_frame[:, 1:5] *= (
+                ratio  # np.array(ratio * 2, dtype=boxes_frame.dtype)
+            )
+        frame = draw_detections(frame, boxes_frame[:, 1:], shape=shape)
         return frame

@@ -4,10 +4,13 @@ from os import makedirs
 from os import path as osp
 
 
-from projectp.inference import InferenceOnnxTileNms
+from projectp.inference import InferenceOnnxFullEnd2End, InferenceOnnxTileNms
 from projectp.processing import get_percentile
 from projectp.utils.logs import log
 
+
+MODE_FULL = 'full'
+MODE_TILE = 'tile'
 
 if __name__ == '__main__':
     from argparse import ArgumentParser
@@ -34,6 +37,15 @@ if __name__ == '__main__':
         required=True,
         metavar='PATH',
         help="path to model to inference (multiple)",
+        type=str,
+    )
+    parser.add_argument(
+        '-i',
+        '--inference',
+        default=MODE_TILE,
+        metavar='MODE',
+        choices=[MODE_FULL, MODE_TILE],
+        help=f"inference mode (default: {MODE_TILE})",
         type=str,
     )
     parser.add_argument(
@@ -80,7 +92,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     prefix = args.prefix or '.'
-    inference_onnx = InferenceOnnxTileNms(args.model)
+    if args.inference == MODE_TILE:
+        inference_onnx = InferenceOnnxTileNms(args.model)
+    elif args.inference == MODE_FULL:
+        inference_onnx = InferenceOnnxFullEnd2End(args.model)
+    else:
+        raise RuntimeError(f"Unknown inference mode '{args.inference}'!")
 
     sources = []
     # max_files = args.max_files or None
